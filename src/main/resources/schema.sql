@@ -127,7 +127,7 @@ ON DUPLICATE KEY UPDATE centimetros = VALUES(centimetros);
 
 -- Usuario admin inicial (password: Admin2026!)
 INSERT INTO usuarios (nombre, email, password_hash, rol, activo) VALUES
-('Administrador', 'admin@printlabel.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lh/i', 'admin', 1)
+('Administrador', 'admin@printlabel.com', '$2y$10$rWcZZMlTyTOtFozzWE/S8.cplb.DaFSe4AyYwk1pIpHHGEBqM56SC', 'admin', 1)
 ON DUPLICATE KEY UPDATE nombre = VALUES(nombre);
 
 -- Programas de ejemplo
