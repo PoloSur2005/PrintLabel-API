@@ -3,47 +3,57 @@ services:
     image: mysql:8.4
     container_name: printlabel-mysql
     restart: unless-stopped
-
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: printlabel_db
-
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-printlabel_db}
+      MYSQL_USER: ${MYSQL_USER:-printlabel}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-printlabel}
+      TZ: ${TZ:-UTC}
     ports:
-      - "3306:3306"
-
+      - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./src/main/resources/schema.sql:/docker-entrypoint-initdb.d/schema.sql
-
+      - ./src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 30s
+    networks:
+      - printlabel-network
 
   api:
     build:
       context: .
       dockerfile: Dockerfile
-
     container_name: printlabel-api
-
     restart: unless-stopped
-
     depends_on:
       mysql:
         condition: service_healthy
-
     ports:
-      - "8080:8080"
-
+      - "${API_PORT:-8080}:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/printlabel_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: root
-
-      JWT_SECRET: TuClaveSecretaSuperLargaDeAlMenos256BitsParaHS256
-      JWT_EXPIRATION_MS: 86400000
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-printlabel_db}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-printlabel}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-printlabel}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-validate}
+      JWT_SECRET: ${JWT_SECRET:-PrintLabelDefaultSecretForLocalDevelopmentOnlyChangeInProduction2026}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/127.0.0.1/8080' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - printlabel-network
 
 volumes:
   mysql_data:
+
+networks:
+  printlabel-network:
+    driver: bridge
