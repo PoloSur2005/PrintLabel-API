@@ -332,6 +332,114 @@ Actualizar tallas:
 
 Las tallas con `cantidadPares: 0` se eliminan si ya existían; no se persisten filas con cero pares.
 
+
+## Estructura de base de datos e integración frontend
+
+El esquema se carga desde `src/main/resources/schema.sql` y está pensado para que el frontend trabaje con identificadores numéricos estables (`id*`) y campos de presentación ya resueltos en las respuestas de la API. Hibernate se ejecuta con `ddl-auto=validate`, por lo que la aplicación espera que estas tablas existan antes de iniciar.
+
+### Modelo relacional
+
+```text
+usuarios (1) ──── (N) ordenes (N) ──── (1) fabricas
+                         │
+                         │ 1
+                         ▼
+                  orden_estilos (N) ──── (1) programas
+                         │
+                         │ 1
+                         ▼
+                  estilo_tallas (N) ──── (1) tallas
+```
+
+Flujo recomendado para construir pantallas:
+
+1. Cargar catálogos activos desde `GET /fabricas`, `GET /programas` y `GET /tallas`.
+2. Crear la orden con `POST /ordenes` usando `idFabrica` y `fechaProgramacion`.
+3. Agregar uno o más programas a la orden con `POST /ordenes/{id}/estilos`.
+4. Guardar cantidades por talla con `PUT /ordenes/{id}/estilos/{eid}/tallas`.
+5. Consultar `GET /ordenes/{id}` para renderizar la orden completa con fábrica, usuario, estilos, programas y tallas.
+6. Cerrar la orden con `PATCH /ordenes/{id}/cerrar` cuando ya no deba editarse.
+7. Descargar el CSV con `GET /ordenes/{id}/csv`.
+
+### Tablas y campos principales
+
+| Tabla | Propósito | Campos importantes para frontend | Reglas y notas |
+|---|---|---|---|
+| `usuarios` | Usuarios que inician sesión y crean órdenes. | `id_usuario`, `nombre`, `email`, `rol`, `activo` | `email` es único. `rol` puede ser `admin` u `operario`. No se expone `password_hash` en respuestas. |
+| `fabricas` | Catálogo de plantas/fábricas destino. | `id_fabrica`, `nombre`, `ciudad`, `contacto`, `activo` | `nombre` es único. Los listados normales devuelven fábricas activas. |
+| `programas` | Catálogo de programas/estilos de calzado. | `id_programa`, `clave`, `nombre`, `descripcion`, `activo` | `clave` es única y es el valor que aparece en el CSV como `PROGRAMA`. |
+| `tallas` | Catálogo de tallas disponibles. | `id_talla`, `numero_talla`, `centimetros`, `activo` | `numero_talla` es único. Usar `id_talla` para guardar cantidades y mostrar `numero_talla`/`centimetros` en UI. |
+| `ordenes` | Encabezado de una orden de impresión. | `id_orden`, `folio`, `id_fabrica`, `id_usuario`, `fecha_programacion`, `observaciones`, `estatus`, `created_at`, `updated_at` | `folio` es único y lo genera la API. `estatus`: `borrador`, `cerrada`, `exportada`. |
+| `orden_estilos` | Programas agregados dentro de una orden. | `id_estilo`, `id_orden`, `id_programa`, `orden_fila` | `orden_fila` sirve para ordenar visualmente los estilos en la pantalla. Se elimina en cascada si se borra la orden. |
+| `estilo_tallas` | Cantidades por talla para cada estilo. | `id_detalle`, `id_estilo`, `id_talla`, `cantidad_pares` | La combinación `id_estilo + id_talla` es única. Cantidad `0` elimina el detalle si ya existía. |
+
+### Campos de API vs columnas SQL
+
+La API usa JSON en `camelCase`, mientras que MySQL usa `snake_case`. Para integración, el frontend debe enviar y leer los nombres JSON documentados en los endpoints, no los nombres de columnas.
+
+| Concepto | Columna SQL | Campo JSON |
+|---|---|---|
+| Orden | `id_orden` | `idOrden` |
+| Fábrica | `id_fabrica` | `idFabrica` |
+| Usuario creador | `id_usuario` | `idUsuario` |
+| Fecha programada | `fecha_programacion` | `fechaProgramacion` |
+| Estilo dentro de orden | `id_estilo` | `idEstilo` |
+| Programa | `id_programa` | `idPrograma` |
+| Talla | `id_talla` | `idTalla` |
+| Número de talla | `numero_talla` | `numeroTalla` |
+| Cantidad de pares | `cantidad_pares` | `cantidadPares` |
+| Fecha de creación | `created_at` | `createdAt` |
+| Fecha de actualización | `updated_at` | `updatedAt` |
+
+### Respuesta completa de una orden
+
+`GET /ordenes/{id}` devuelve una estructura anidada lista para pintar una pantalla de detalle sin hacer consultas adicionales por cada fila:
+
+```json
+{
+  "idOrden": 1,
+  "folio": "ORD-20260615-0001",
+  "idFabrica": 1,
+  "nombreFabrica": "Planta Norte",
+  "idUsuario": 1,
+  "nombreUsuario": "Administrador",
+  "fechaProgramacion": "2026-06-17",
+  "observaciones": "Producción semana 25",
+  "estatus": "borrador",
+  "createdAt": "2026-06-15T10:30:00",
+  "updatedAt": "2026-06-15T10:45:00",
+  "estilos": [
+    {
+      "idEstilo": 1,
+      "idPrograma": 1,
+      "clavePrograma": "ANG-017",
+      "nombrePrograma": "Angulo 017 Caballero",
+      "ordenFila": 1,
+      "tallas": [
+        {
+          "idDetalle": 1,
+          "idTalla": 23,
+          "numeroTalla": 24.0,
+          "centimetros": 24.0,
+          "cantidadPares": 6
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Reglas prácticas para el frontend
+
+- Usa siempre los IDs (`idFabrica`, `idPrograma`, `idTalla`, `idOrden`, `idEstilo`) para guardar relaciones; los nombres y claves son para mostrar al usuario.
+- Trata `estatus = borrador` como editable. Una orden `cerrada` ya no debe mostrar acciones de edición de encabezado, estilos o tallas.
+- Al actualizar tallas, envía el arreglo completo que quieres persistir para ese estilo. Las tallas omitidas no se modifican; las tallas enviadas con `cantidadPares: 0` se eliminan si existen.
+- Valida en cliente que `cantidadPares` sea entero mayor o igual a `0` y que `fechaProgramacion` use formato `YYYY-MM-DD`.
+- Los catálogos usan borrado lógico mediante `activo`; evita mostrar registros inactivos en selects nuevos, pero conserva el texto devuelto por una orden histórica.
+- Para decimales (`numeroTalla`, `centimetros`) espera números con una cifra decimal, por ejemplo `24.0` o `24.5`.
+- Maneja `409 Conflict` para duplicados de `email`, `nombre` de fábrica, `clave` de programa o `numeroTalla`.
+- Si recibes `401`, elimina el token local y redirige al login; si recibes `403`, muestra un mensaje de permisos insuficientes.
+
 ## Códigos de respuesta
 
 | Código | Descripción |
