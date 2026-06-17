@@ -16,7 +16,7 @@ public interface OrdenEstiloRepository extends JpaRepository<OrdenEstilo, Intege
 
     Optional<OrdenEstilo> findByIdEstiloAndOrden_IdOrden(Integer idEstilo, Integer idOrden);
 
-    @Query("SELECT oe FROM OrdenEstilo oe " +
+    @Query("SELECT DISTINCT oe FROM OrdenEstilo oe " +
            "JOIN FETCH oe.programa p " +
            "LEFT JOIN FETCH oe.tallas et " +
            "LEFT JOIN FETCH et.talla t " +

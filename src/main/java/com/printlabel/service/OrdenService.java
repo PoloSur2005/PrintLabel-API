@@ -53,8 +53,8 @@ public class OrdenService {
     }
 
     public OrdenDto.Response findById(Integer id) {
-        Orden orden = ordenRepository.findByIdWithEstilosAndTallas(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Orden no encontrada con ID: " + id));
+        Orden orden = getOrdenOrThrow(id);
+        orden.setEstilos(ordenEstiloRepository.findByOrdenIdWithDetails(id));
         return new OrdenDto.Response(orden);
     }
 

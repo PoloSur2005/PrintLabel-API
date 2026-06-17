@@ -22,7 +22,4 @@ public interface OrdenRepository extends JpaRepository<Orden, Integer> {
     Optional<Orden> findByFolio(String folio);
 
     boolean existsByFolio(String folio);
-
-    @Query("SELECT o FROM Orden o LEFT JOIN FETCH o.estilos e LEFT JOIN FETCH e.tallas WHERE o.idOrden = :id")
-    Optional<Orden> findByIdWithEstilosAndTallas(@Param("id") Integer id);
 }
